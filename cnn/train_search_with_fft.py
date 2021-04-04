@@ -15,9 +15,9 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torchvision.datasets import CIFAR10
 
 import utils
-from model_search import Network
+from model_search import FFTNetwork as Network
 from genotypes import genomes
-from architect import Architect
+from architect import FFTArchitect as Architect
 
 CIFAR_CLASSES = 10
 
@@ -102,7 +102,7 @@ def cmd_argument_parser():
                         help='weight decay for arch encoding')
     args = parser.parse_args()
 
-    args.save = 'search-{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
+    args.save = 'search_fft-{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
     utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
     return args
 
@@ -214,11 +214,11 @@ def main():
                                      lr_scheduler, args)
 
         # Validate model
-        with torch.no_grad():
-            valid_acc, valid_obj = infer(valid_queue, model, criterion, args)
+        #with torch.no_grad():
+            #valid_acc, valid_obj = infer(valid_queue, model, criterion, args)
 
         logging.info('train_acc %f', train_acc)
-        logging.info('valid_acc %f', valid_acc)
+        #logging.info('valid_acc %f', valid_acc)
 
         # SAve the model for each epoch
         utils.save(model, os.path.join(args.save, 'weights.pt'))

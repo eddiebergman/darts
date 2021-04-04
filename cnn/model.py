@@ -50,6 +50,7 @@ class Cell(nn.Module):
       op2 = self._ops[2*i+1]
       h1 = op1(h1)
       h2 = op2(h2)
+
       if self.training and drop_prob > 0.:
         if not isinstance(op1, Identity):
           h1 = drop_path(h1, drop_prob)
