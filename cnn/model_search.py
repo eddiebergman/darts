@@ -64,7 +64,8 @@ class Cell(nn.Module):
 class Network(nn.Module):
 
     def __init__(self, C, num_classes, layers, criterion,
-                 steps=4, multiplier=4, stem_multiplier=3):
+                 steps=4, multiplier=4, stem_multiplier=3,
+                 retain_arch_grad=False):
         super(Network, self).__init__()
         self._C = C
         self._num_classes = num_classes
@@ -72,30 +73,28 @@ class Network(nn.Module):
         self._criterion = criterion
         self._steps = steps
         self._multiplier = multiplier
+        self._retain_arch_grad = retain_arch_grad
 
+        # Set up first layer
         C_curr = stem_multiplier * C
         self.stem = nn.Sequential(
             nn.Conv2d(3, C_curr, 3, padding=1, bias=False),
             nn.BatchNorm2d(C_curr)
         )
 
+        # Set up intermediate layers
         C_prev_prev, C_prev, C_curr = C_curr, C_curr, C
-        self.cells = nn.ModuleList()
         reduction_prev = False
+
+        self.cells = nn.ModuleList()
         for i in range(layers):
             if i in [layers // 3, 2 * layers // 3]:
                 C_curr *= 2
                 reduction = True
             else:
                 reduction = False
-            cell = Cell(
-                steps,
-                multiplier,
-                C_prev_prev,
-                C_prev,
-                C_curr,
-                reduction,
-                reduction_prev)
+            cell = Cell(steps, multiplier, C_prev_prev, C_prev, C_curr,
+                        reduction, reduction_prev)
             reduction_prev = reduction
             self.cells += [cell]
             C_prev_prev, C_prev = C_prev, multiplier * C_curr
@@ -103,17 +102,43 @@ class Network(nn.Module):
         self.global_pooling = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Linear(C_prev, num_classes)
 
+        # Create architecture parameters
         self._initialize_alphas()
 
-    def new(self):
-        model_new = Network(
-            self._C,
-            self._num_classes,
-            self._layers,
-            self._criterion).cuda()
-        for x, y in zip(model_new.arch_parameters(), self.arch_parameters()):
-            x.data.copy_(y.data)
-        return model_new
+    def _initialize_alphas(self):
+        k = sum(1 for i in range(self._steps) for n in range(2 + i))
+        num_ops = len(PRIMITIVES)
+
+        self._arch_parameters = {
+            'normal': 1e-3 * torch.randn(k, num_ops).cuda(),
+            'reduce': 1e-3 * torch.randn(k, num_ops).cuda()
+        }
+
+        # Set them to leaf nodes that require grads
+        for tensor in self._arch_parameters.values():
+            tensor.requires_grad = True
+
+
+    def clone(self):
+        """ Clones the architecture
+
+        Note: This will not clone any weights
+        """
+        new_model = Network(self._C,
+                            self._num_classes,
+                            self._layers,
+                            self._criterion)
+        new_model.cuda()
+
+        # Transfer arch parameters to new model
+        local_arch = self._arch_parameters
+        new_model_arch = new_model._arch_parameters
+        for key in ['normal', 'reduce']:
+            local_weights = local_arch[key]
+            new_model_weights = new_model_arch[key]
+            new_model_weights.copy_(local_weights)
+
+        return new_model
 
     def forward(self, input):
         s0 = s1 = self.stem(input)
@@ -131,35 +156,14 @@ class Network(nn.Module):
         logits = self(input)
         return self._criterion(logits, target)
 
-    def _initialize_alphas(self):
-        k = sum(1 for i in range(self._steps) for n in range(2 + i))
-        num_ops = len(PRIMITIVES)
-
-        alphas_normal = Variable(
-            1e-3 *
-            torch.randn(
-                k,
-                num_ops).cuda(),
-            requires_grad=True)
-        alphas_reduce = Variable(
-            1e-3 *
-            torch.randn(
-                k,
-                num_ops).cuda(),
-            requires_grad=True)
-        self._arch_parameters = [
-            alphas_normal,
-            alphas_reduce,
-        ]
-
     def arch_parameters(self):
         return self._arch_parameters
 
     def alphas_normal(self):
-        return self._arch_parameters[0]
+        return self._arch_parameters['normal']
 
     def alphas_reduce(self):
-        return self._arch_parameters[1]
+        return self._arch_parameters['reduce']
 
     def genotype(self):
 
@@ -186,13 +190,11 @@ class Network(nn.Module):
         gene_normal = _parse(
             F.softmax(
                 self.alphas_normal(),
-                dim=-
-                1).data.cpu().numpy())
+                dim=-1).data.cpu().numpy())
         gene_reduce = _parse(
             F.softmax(
                 self.alphas_reduce(),
-                dim=-
-                1).data.cpu().numpy())
+                dim=- 1).data.cpu().numpy())
 
         concat = range(2 + self._steps - self._multiplier, self._steps + 2)
         genotype = Genotype(
@@ -204,64 +206,65 @@ class Network(nn.Module):
 
 class FFTNetwork(Network):
 
-    def __init__(self, C, num_classes, layers, criterion,
-                 steps=4, multiplier=4, stem_multiplier=3):
-        super(Network, self).__init__()
-        self._C = C
-        self._num_classes = num_classes
-        self._layers = layers
-        self._criterion = criterion
-        self._steps = steps
-        self._multiplier = multiplier
-
-        C_curr = stem_multiplier * C
-        self.stem = nn.Sequential(
-            nn.Conv2d(3, C_curr, 3, padding=1, bias=False),
-            nn.BatchNorm2d(C_curr)
-        )
-
-        C_prev_prev, C_prev, C_curr = C_curr, C_curr, C
-        self.cells = nn.ModuleList()
-        reduction_prev = False
-        for i in range(layers):
-            if i in [layers // 3, 2 * layers // 3]:
-                C_curr *= 2
-                reduction = True
-            else:
-                reduction = False
-            cell = Cell( steps, multiplier, C_prev_prev, C_prev, C_curr, 
-                        reduction, reduction_prev)
-            reduction_prev = reduction
-            self.cells += [cell]
-            C_prev_prev, C_prev = C_prev, multiplier * C_curr
-
-        self.global_pooling = nn.AdaptiveAvgPool2d(1)
-        self.classifier = nn.Linear(C_prev, num_classes)
-
-        self._initialize_alphas()
-
-    def alphas_normal(self):
-        return fft.irfft2(self.coeffs_normal, s=self._normal_size)
-
-    def alphas_reduce(self):
-        return fft.irfft2(self.coeffs_reduce, s=self._reduce_size)
-
     def _initialize_alphas(self):
         k = sum(1 for i in range(self._steps) for n in range(2 + i))
         num_ops = len(PRIMITIVES)
 
-        initial_alphas_normal = Variable(1e-3 * torch.randn(k, num_ops).cuda())
-        self._normal_size = initial_alphas_normal.size()
-        self.coeffs_normal = fft.rfft2(initial_alphas_normal, s=self._normal_size)
-        self.coeffs_normal.requires_grad = True
+        init_alphas_normal = 1e-3 * torch.randn(k, num_ops).cuda()
+        init_alphas_reduce = 1e-3 * torch.randn(k, num_ops).cuda()
 
-        initial_alphas_reduce = Variable(1e-3 * torch.randn(k, num_ops).cuda())
-        self._reduce_size = initial_alphas_reduce.size()
-        self.coeffs_reduce = fft.rfft2(initial_alphas_reduce, s=self._reduce_size)
-        self.coeffs_reduce.requires_grad = True
+        self._arch_sizes = {
+            'normal': init_alphas_normal.size(),
+            'reduce': init_alphas_reduce.size()
+        }
+        self._coeffs = {
+            'normal': fft.rfft2(init_alphas_normal, s=self._arch_sizes['normal']),
+            'reduce': fft.rfft2(init_alphas_reduce, s=self._arch_sizes['reduce'])
+        }
+        # Set grad for _coeffs
+        for tensor in self._coeffs.values():
+            tensor.requires_grad = True
+
+    def clone(self):
+        """ Clones the architecture
+
+        Note: This will not clone any weights
+        """
+        new_model = Network(self._C,
+                            self._num_classes,
+                            self._layers,
+                            self._criterion)
+        new_model.cuda()
+
+        # Transfer arch parameters to new model
+        local_arch = self._arch_parameters
+        new_model_arch = new_model._arch_parameters
+        for key in ['normal', 'reduce']:
+            local_weights = local_arch[key]
+            new_model_weights = new_model_arch[key]
+            new_model_weights.copy_(local_weights)
+
+        return new_model
+
+    def alphas_normal(self):
+        alphas = fft.irfft2(self._coeffs['normal'], s=self._arch_sizes['normal'])
+        if self._retain_arch_grad:
+            alphas.retain_grad()
+
+        return alphas
+
+    def alphas_reduce(self):
+        alphas = fft.irfft2(self._coeffs['reduce'], s=self._arch_sizes['reduce'])
+        if self._retain_arch_grad:
+            alphas.retain_grad()
+
+        return alphas
 
     def arch_parameters(self):
-        return [self.alphas_normal(), self.alphas_reduce()]
+        return {
+            'normal': self.alphas_normal(),
+            'reduce': self.alphas_reduce()
+        }
 
     def arch_coefficients(self):
-        return [self.coeffs_normal, self.coeffs_reduce]
+        return self._coeffs

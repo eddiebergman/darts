@@ -157,7 +157,8 @@ def main():
     model = Network(C=args.init_channels,
                     num_classes=CIFAR_CLASSES,
                     layers=args.layers,
-                    criterion=criterion)
+                    criterion=criterion,
+                    retain_arch_grad=True)
     model = model.cuda()
 
     logging.info('gpu device = %d' % args.gpu)

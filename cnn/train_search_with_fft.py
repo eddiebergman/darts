@@ -157,7 +157,8 @@ def main():
     model = Network(C=args.init_channels,
                     num_classes=CIFAR_CLASSES,
                     layers=args.layers,
-                    criterion=criterion)
+                    criterion=criterion,
+                    retain_arch_grad=True)
     model = model.cuda()
 
     logging.info('gpu device = %d' % args.gpu)
@@ -207,6 +208,8 @@ def main():
 
         print(f'Normal cell alphas: {F.softmax(model.alphas_normal(), dim=-1)}')
         print(f'Reduce cell alphas: {F.softmax(model.alphas_reduce(), dim=-1)}')
+        print(f'Normal cell coeffs: {model._coeffs["normal"]}' )
+        print(f'Reduce cell coeffs: {model._coeffs["reduce"]}' )
 
         # training
         train_acc, train_obj = train(train_queue, valid_queue, model,
