@@ -206,10 +206,10 @@ def main():
         genotype = model.genotype()
         logging.info('genotype = %s', genotype)
 
-        print(f'Normal alphas: {model.alphas_normal()}')
-        print(f'Reduce alphas: {model.alphas_reduce()}')
-        print(f'Normal softmax alphas: {F.softmax(model.alphas_normal(), dim=-1)}')
-        print(f'Reduce softmax alphas: {F.softmax(model.alphas_reduce(), dim=-1)}')
+        logging.info(f'Normal alphas: {model.alphas_normal()}')
+        logging.info(f'Reduce alphas: {model.alphas_reduce()}')
+        logging.info(f'Normal softmax alphas: {F.softmax(model.alphas_normal(), dim=-1)}')
+        logging.info(f'Reduce softmax alphas: {F.softmax(model.alphas_reduce(), dim=-1)}')
 
         # training
         train_acc, train_obj = train(train_queue, valid_queue, model,
