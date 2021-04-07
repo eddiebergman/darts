@@ -118,7 +118,6 @@ class Network(nn.Module):
         for tensor in self._arch_parameters.values():
             tensor.requires_grad = True
 
-
     def clone(self):
         """ Clones the architecture
 
@@ -190,11 +189,13 @@ class Network(nn.Module):
         gene_normal = _parse(
             F.softmax(
                 self.alphas_normal(),
-                dim=-1).data.cpu().numpy())
+                dim=-
+                1).data.cpu().numpy())
         gene_reduce = _parse(
             F.softmax(
                 self.alphas_reduce(),
-                dim=- 1).data.cpu().numpy())
+                dim=-
+                1).data.cpu().numpy())
 
         concat = range(2 + self._steps - self._multiplier, self._steps + 2)
         genotype = Genotype(
@@ -205,6 +206,13 @@ class Network(nn.Module):
 
 
 class FFTNetwork(Network):
+
+    def __init__(self, C, num_classes, layers, criterion,
+                 steps=4, multiplier=4, stem_multiplier=3,
+                 retain_arch_grad=False, coeff_size=(14, 8)):
+        super().__init__(C, num_classes, layers, criterion, steps,
+                         multiplier, stem_multiplier, retain_arch_grad)
+        self._coeff_size = coeff_size
 
     def _initialize_alphas(self):
         k = sum(1 for i in range(self._steps) for n in range(2 + i))
@@ -217,10 +225,14 @@ class FFTNetwork(Network):
             'normal': init_alphas_normal.size(),
             'reduce': init_alphas_reduce.size()
         }
+
+        # Note: We store the full frequency spectrum but this gets
+        # trimmed for backprop, alphas reconstruction and arch_coefficients()
         self._coeffs = {
             'normal': fft.rfft2(init_alphas_normal, s=self._arch_sizes['normal']),
             'reduce': fft.rfft2(init_alphas_reduce, s=self._arch_sizes['reduce'])
         }
+
         # Set grad for _coeffs
         for tensor in self._coeffs.values():
             tensor.requires_grad = True
@@ -246,15 +258,19 @@ class FFTNetwork(Network):
 
         return new_model
 
+        return
+
     def alphas_normal(self):
-        alphas = fft.irfft2(self._coeffs['normal'], s=self._arch_sizes['normal'])
+        coeffs = self.arch_coefficients()
+        alphas = fft.irfft2(coeffs['normal'], s=self._arch_sizes['normal'])
         if self._retain_arch_grad:
             alphas.retain_grad()
 
         return alphas
 
     def alphas_reduce(self):
-        alphas = fft.irfft2(self._coeffs['reduce'], s=self._arch_sizes['reduce'])
+        coeffs = self.arch_coefficients()
+        alphas = fft.irfft2(coeffs['reduce'], s=self._arch_sizes['reduce'])
         if self._retain_arch_grad:
             alphas.retain_grad()
 
@@ -266,5 +282,13 @@ class FFTNetwork(Network):
             'reduce': self.alphas_reduce()
         }
 
-    def arch_coefficients(self):
-        return self._coeffs
+    def arch_coefficients(self, pruned=True):
+        if not pruned:
+            return self._coeffs
+        else:
+            # Trims the higher frequency compenents based on self._coeff_size
+            rows, cols = self._coeff_size
+            return {
+                'normal': self._coeffs['normal'][:rows, :cols],
+                'reduce': self._coeffs['reduce'][:rows, :cols]
+            }

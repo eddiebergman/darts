@@ -24,6 +24,11 @@ CIFAR_CLASSES = 10
 
 def cmd_argument_parser():
     parser = argparse.ArgumentParser("cifar")
+    parser.add_argument('--coeff_size', 
+                        type=int,
+                        nargs='+',
+                        default=[14, 8],
+                        help='A tuple of coefficients to use for fourier transform, --coeff_size 14 8')
     parser.add_argument('--data',
                         type=str,
                         default='../data',
@@ -158,7 +163,8 @@ def main():
                     num_classes=CIFAR_CLASSES,
                     layers=args.layers,
                     criterion=criterion,
-                    retain_arch_grad=True)
+                    retain_arch_grad=True,
+                    coeff_size=args.coeff_size)
     model = model.cuda()
 
     logging.info('gpu device = %d' % args.gpu)
@@ -219,8 +225,8 @@ def main():
                                      lr_scheduler, args)
 
         # Validate model
-        #with torch.no_grad():
-            #valid_acc, valid_obj = infer(valid_queue, model, criterion, args)
+        with torch.no_grad():
+            valid_acc, valid_obj = infer(valid_queue, model, criterion, args)
 
         logging.info('train_acc %f', train_acc)
         #logging.info('valid_acc %f', valid_acc)
