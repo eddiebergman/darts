@@ -163,7 +163,6 @@ def main():
                     num_classes=CIFAR_CLASSES,
                     layers=args.layers,
                     criterion=criterion,
-                    retain_arch_grad=True,
                     coeff_size=args.coeff_size)
     model = model.cuda()
 

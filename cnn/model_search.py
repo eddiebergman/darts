@@ -64,8 +64,7 @@ class Cell(nn.Module):
 class Network(nn.Module):
 
     def __init__(self, C, num_classes, layers, criterion,
-                 steps=4, multiplier=4, stem_multiplier=3,
-                 retain_arch_grad=False):
+                 steps=4, multiplier=4, stem_multiplier=3):
         super(Network, self).__init__()
         self._C = C
         self._num_classes = num_classes
@@ -73,7 +72,6 @@ class Network(nn.Module):
         self._criterion = criterion
         self._steps = steps
         self._multiplier = multiplier
-        self._retain_arch_grad = retain_arch_grad
 
         # Set up first layer
         C_curr = stem_multiplier * C
@@ -204,14 +202,13 @@ class Network(nn.Module):
         )
         return genotype
 
-
 class FFTNetwork(Network):
 
     def __init__(self, C, num_classes, layers, criterion,
                  steps=4, multiplier=4, stem_multiplier=3,
-                 retain_arch_grad=False, coeff_size=(14, 8)):
+                 coeff_size=(14, 8)):
         super().__init__(C, num_classes, layers, criterion, steps,
-                         multiplier, stem_multiplier, retain_arch_grad)
+                         multiplier, stem_multiplier)
         self._coeff_size = coeff_size
 
     def _initialize_alphas(self):
@@ -263,17 +260,11 @@ class FFTNetwork(Network):
     def alphas_normal(self):
         coeffs = self.arch_coefficients()
         alphas = fft.irfft2(coeffs['normal'], s=self._arch_sizes['normal'])
-        if self._retain_arch_grad:
-            alphas.retain_grad()
-
         return alphas
 
     def alphas_reduce(self):
         coeffs = self.arch_coefficients()
         alphas = fft.irfft2(coeffs['reduce'], s=self._arch_sizes['reduce'])
-        if self._retain_arch_grad:
-            alphas.retain_grad()
-
         return alphas
 
     def arch_parameters(self):
